@@ -1,0 +1,61 @@
+server:
+  port: 8080
+  servlet:
+    context-path: /
+
+spring:
+  application:
+    name: activity-feed-service
+
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+    time-zone: UTC
+
+# AWS Configuration (LocalStack for development)
+aws:
+  endpoint: http://localhost:4566
+  region: us-east-1
+  access-key-id: test
+  secret-access-key: test
+
+  sqs:
+    queue-url: http://localhost:4566/000000000000/activity-events
+    worker-threads: 5           # Number of parallel workers for message processing
+    queue-capacity: 20          # Bounded queue size (backpressure protection)
+    visibility-timeout: 30      # Seconds before message reappears (must be > max processing time)
+
+  dynamodb:
+    table-name: transactions
+
+# OpenSearch Configuration
+opensearch:
+  host: localhost
+  port: 9200
+  scheme: http
+  username: admin
+  password: G9!vQ2#rT7@pL3xZ
+
+logging:
+  level:
+    root: INFO
+    com.wallet.activityfeed: DEBUG
+    software.amazon.awssdk: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} - %msg%n"
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: always
+
+springdoc:
+  api-docs:
+    path: /api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    enabled: true

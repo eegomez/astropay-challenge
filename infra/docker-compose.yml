@@ -1,0 +1,26 @@
+version: "3.9"
+
+services:
+  localstack:
+    image: localstack/localstack:latest
+    ports:
+      - "4566:4566"
+    environment:
+      - SERVICES=sqs,dynamodb
+      - DEFAULT_REGION=us-east-1
+    volumes:
+      - /Users/egomez/.colima/default/docker.sock:/Users/egomez/.colima/default/docker.sock
+
+  opensearch:
+    image: opensearchproject/opensearch:2
+    environment:
+      - discovery.type=single-node
+      - OPENSEARCH_INITIAL_ADMIN_PASSWORD=G9!vQ2#rT7@pL3xZ
+      - OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m
+      - plugins.security.ssl.http.enabled=false
+    ports:
+      - "9200:9200"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1

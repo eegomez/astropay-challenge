@@ -1,0 +1,435 @@
+openapi: 3.0.1
+info:
+  title: Activity Feed Service API
+  description: |
+    Unified activity feed API for all financial transactions across wallet products.
+
+    ## Features
+    - **Cursor-based pagination** for efficient deep pagination
+    - **Polyglot persistence**: DynamoDB for simple queries, OpenSearch for complex filters
+    - **Real-time updates** via SQS event consumption
+    - **Smart query routing** based on filter complexity
+
+    ## Query Routing Strategy
+    - **DynamoDB**: Simple queries (userId only, or userId + date range with sortBy=occurredAt DESC)
+    - **OpenSearch**: Complex queries (any filters, custom sorting, text search, metadata filtering)
+
+  version: 1.0.0
+  contact:
+    name: Wallet Engineering Team
+servers:
+  - url: http://localhost:8080
+    description: Local development server
+  - url: http://localhost:4566
+    description: LocalStack (AWS emulation)
+
+tags:
+  - name: Activity Feed
+    description: Unified activity feed API for all financial transactions
+  - name: Health
+    description: Health check endpoints with external dependencies
+
+paths:
+  /api/v1/activity-feed/users/{userId}/transactions:
+    get:
+      tags:
+        - Activity Feed
+      summary: Get user transactions
+      description: |
+        Retrieves paginated and filtered transactions for a specific user.
+        Uses DynamoDB for simple queries (userId only or userId + date) or OpenSearch for complex filters.
+
+        **Cursor-based pagination**: Use the `nextCursor` from the response to fetch the next page.
+      operationId: getUserTransactions
+      parameters:
+        - name: userId
+          in: path
+          description: User ID
+          required: true
+          schema:
+            type: string
+          example: user123
+        - name: limit
+          in: query
+          description: Maximum number of items to return (default 20, max 100)
+          required: false
+          schema:
+            type: integer
+            default: 20
+            minimum: 1
+            maximum: 100
+          example: 20
+        - name: cursor
+          in: query
+          description: Pagination cursor from previous response (Base64 encoded)
+          required: false
+          schema:
+            type: string
+          example: eyJ1c2VyX2lkIjoidXNlcjEyMyIsInNrIjoiMjAyNi0wMS0xOVQxMDoxMjoxMFojdHgtYmFuay04MzRjNzcxNy1hYmUwLTRiYWQtYTgxMi1mYWEzNjliNzY3ZTgifQ==
+        - name: sortBy
+          in: query
+          description: Field to sort by
+          required: false
+          schema:
+            type: string
+            enum: [occurredAt, amount, createdAt]
+            default: occurredAt
+          example: occurredAt
+        - name: sortDirection
+          in: query
+          description: Sort direction
+          required: false
+          schema:
+            type: string
+            enum: [ASC, DESC]
+            default: DESC
+          example: DESC
+        - name: product
+          in: query
+          description: Filter by product type
+          required: false
+          schema:
+            type: string
+            enum: [CARD, CRYPTO, BANK, P2P, EARNINGS]
+          example: CARD
+        - name: type
+          in: query
+          description: Filter by transaction type
+          required: false
+          schema:
+            type: string
+            enum: [PAYMENT, DEPOSIT, WITHDRAWAL, TRANSFER, REFUND, FEE, REWARD]
+          example: PAYMENT
+        - name: status
+          in: query
+          description: Filter by transaction status
+          required: false
+          schema:
+            type: string
+            enum: [PENDING, COMPLETED, FAILED, CANCELLED, PROCESSING]
+          example: COMPLETED
+        - name: currency
+          in: query
+          description: Filter by currency
+          required: false
+          schema:
+            type: string
+            enum: [USD, EUR, GBP, JPY, BTC, ETH]
+          example: USD
+        - name: startDate
+          in: query
+          description: Filter transactions from this date (ISO 8601 format)
+          required: false
+          schema:
+            type: string
+            format: date-time
+          example: "2026-01-01T00:00:00Z"
+        - name: endDate
+          in: query
+          description: Filter transactions until this date (ISO 8601 format)
+          required: false
+          schema:
+            type: string
+            format: date-time
+          example: "2026-01-31T23:59:59Z"
+        - name: searchText
+          in: query
+          description: Full-text search across description, eventId, and transactionId
+          required: false
+          schema:
+            type: string
+          example: Starbucks
+        - name: metadataField
+          in: query
+          description: Filter by specific metadata field (requires metadataValue)
+          required: false
+          schema:
+            type: string
+          example: merchantName
+        - name: metadataValue
+          in: query
+          description: Value to match for metadataField
+          required: false
+          schema:
+            type: string
+          example: Starbucks
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionPageResponse'
+              example:
+                success: true
+                message: null
+                data:
+                  content:
+                    - id: tx-card-abc123
+                      userId: user123
+                      product: CARD
+                      type: PAYMENT
+                      status: COMPLETED
+                      amount: 89.99
+                      currency: USD
+                      description: Card payment at Starbucks
+                      occurredAt: "2026-01-19T10:30:00Z"
+                      createdAt: "2026-01-19T10:30:00Z"
+                      sourceService: card-service
+                      eventId: evt-xyz789
+                      transactionId: tx-card-abc123
+                      metadata:
+                        merchantName: Starbucks
+                        cardLast4: "4242"
+                        cardBrand: Visa
+                  nextCursor: eyJzb21lIjoiY3Vyc29yIn0=
+                  size: 1
+                  hasMore: true
+        '400':
+          description: Bad request - validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                message: userId is required
+                data: null
+
+  /api/v1/activity-feed/transactions/{id}:
+    get:
+      tags:
+        - Activity Feed
+      summary: Get transaction by ID
+      description: |
+        Retrieves a specific transaction by its ID from DynamoDB using the id-index GSI.
+        Fast lookup using Global Secondary Index for O(1) performance.
+      operationId: getTransactionById
+      parameters:
+        - name: id
+          in: path
+          description: Transaction ID
+          required: true
+          schema:
+            type: string
+          example: tx-card-abc123
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionResponse'
+              example:
+                success: true
+                message: null
+                data:
+                  id: tx-card-abc123
+                  userId: user123
+                  product: CARD
+                  type: PAYMENT
+                  status: COMPLETED
+                  amount: 89.99
+                  currency: USD
+                  description: Card payment at Starbucks
+                  occurredAt: "2026-01-19T10:30:00Z"
+                  createdAt: "2026-01-19T10:30:00Z"
+                  sourceService: card-service
+                  eventId: evt-xyz789
+                  transactionId: tx-card-abc123
+                  metadata:
+                    merchantName: Starbucks
+                    cardLast4: "4242"
+                    cardBrand: Visa
+        '404':
+          description: Transaction not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                message: Transaction not found with id: invalid-id
+                data: null
+
+  /api/v1/health:
+    get:
+      tags:
+        - Health
+      summary: Health check
+      description: Returns the health status of the service and its dependencies (DynamoDB, SQS, OpenSearch)
+      operationId: healthCheck
+      responses:
+        '200':
+          description: Health status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  service:
+                    type: string
+                    example: activity-feed
+                  timestamp:
+                    type: string
+                    format: date-time
+                    example: "2026-01-20T10:30:00Z"
+                  status:
+                    type: string
+                    enum: [UP, DEGRADED, DOWN]
+                    example: UP
+                  dependencies:
+                    type: object
+                    properties:
+                      dynamodb:
+                        type: string
+                        enum: [UP, DOWN]
+                        example: UP
+                      sqs:
+                        type: string
+                        enum: [UP, DOWN]
+                        example: UP
+                      opensearch:
+                        type: string
+                        enum: [UP, DOWN]
+                        example: UP
+
+components:
+  schemas:
+    TransactionPageResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          nullable: true
+          example: null
+        data:
+          $ref: '#/components/schemas/PageResponse'
+
+    TransactionResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          nullable: true
+          example: null
+        data:
+          $ref: '#/components/schemas/Transaction'
+
+    PageResponse:
+      type: object
+      properties:
+        content:
+          type: array
+          items:
+            $ref: '#/components/schemas/Transaction'
+        nextCursor:
+          type: string
+          nullable: true
+          description: Opaque cursor for next page (Base64 encoded)
+          example: eyJzb21lIjoiY3Vyc29yIn0=
+        size:
+          type: integer
+          description: Number of items in current page
+          example: 10
+        hasMore:
+          type: boolean
+          description: True if there are more pages available
+          example: true
+
+    Transaction:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Unique transaction identifier
+          example: tx-card-abc123
+        userId:
+          type: string
+          description: User identifier
+          example: user123
+        product:
+          type: string
+          enum: [CARD, CRYPTO, BANK, P2P, EARNINGS]
+          description: Product type
+          example: CARD
+        type:
+          type: string
+          enum: [PAYMENT, DEPOSIT, WITHDRAWAL, TRANSFER, REFUND, FEE, REWARD]
+          description: Transaction type
+          example: PAYMENT
+        status:
+          type: string
+          enum: [PENDING, COMPLETED, FAILED, CANCELLED, PROCESSING]
+          description: Transaction status
+          example: COMPLETED
+        amount:
+          type: number
+          format: double
+          description: Transaction amount
+          example: 89.99
+        currency:
+          type: string
+          enum: [USD, EUR, GBP, JPY, BTC, ETH]
+          description: Currency code
+          example: USD
+        description:
+          type: string
+          description: Human-readable description
+          example: Card payment at Starbucks
+        occurredAt:
+          type: string
+          format: date-time
+          description: When the transaction occurred
+          example: "2026-01-19T10:30:00Z"
+        createdAt:
+          type: string
+          format: date-time
+          description: When the record was created
+          example: "2026-01-19T10:30:00Z"
+        sourceService:
+          type: string
+          description: Originating microservice
+          example: card-service
+        eventId:
+          type: string
+          nullable: true
+          description: Original event identifier
+          example: evt-xyz789
+        transactionId:
+          type: string
+          nullable: true
+          description: External transaction identifier
+          example: tx-card-abc123
+        metadata:
+          type: object
+          additionalProperties: true
+          nullable: true
+          description: Additional transaction metadata (dynamic fields)
+          example:
+            merchantName: Starbucks
+            merchantCategory: "5812"
+            cardLast4: "4242"
+            cardBrand: Visa
+            location: "New York, NY"
+
+    ErrorResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        message:
+          type: string
+          description: Error message
+          example: Transaction not found
+        data:
+          type: object
+          nullable: true
+          example: null

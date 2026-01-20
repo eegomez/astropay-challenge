@@ -1,0 +1,336 @@
+### Activity Feed API Examples - Cursor-Based Pagination
+### IMPORTANT: Run ./scripts/publish-all-test-events.sh before testing these examples
+###
+### Test Data Summary (7 transactions total):
+### - user123: 4 transactions (CARD USD, CRYPTO USD, BANK USD, P2P USD) - all COMPLETED
+### - user456: 2 transactions (CARD EUR, CRYPTO USD PENDING)
+### - user789: 1 transaction (CARD USD FAILED)
+
+###############################################################################
+# HEALTH CHECK
+###############################################################################
+
+### Health Check
+GET http://localhost:8080/api/v1/health
+
+###
+
+###############################################################################
+# CURSOR-BASED PAGINATION - STEP BY STEP
+###############################################################################
+
+### Step 1: First Page (user123 has 4 transactions, limit to 2)
+# Expected: 2 transactions + nextCursor (because hasMore=true)
+# Copy the nextCursor value from the response for Step 2
+GET http://localhost:8080/api/v1/activity-feed/users/user123/transactions?limit=2
+
+###
+
+### Step 2: Second Page (paste nextCursor from Step 1)
+# Expected: 2 more transactions + nextCursor=null + hasMore=false (this is the last page!)
+# Instructions: Replace {PASTE_CURSOR_FROM_STEP_1} with the actual nextCursor value from Step 1 response
+# Note: With the limit+1 optimization, this correctly detects the end - no Step 3 needed!
+GET http://localhost:8080/api/v1/activity-feed/users/user123/transactions?cursor=eyJ1c2VyX2lkIjoidXNlcjEyMyIsInNrIjoiMjAyNi0wMS0yMFQwOTowMjo0NFojdHgtYmFuay04NjU5MWEyNS02MmViLTRiNWEtYTUzOC0xZmUzYTlhODNhZTIifQ==&limit=2
+
+###
+
+###############################################################################
+# CURSOR PAGINATION WITH FILTERS
+###############################################################################
+
+### Step 1: First Page with Filter (user456 has 2 transactions, limit to 1)
+# Filter: user456 has 2 transactions total (CARD EUR + CRYPTO USD)
+# Expected: 1 transaction + nextCursor + hasMore=true
+# Copy the nextCursor value from the response for the next step
+GET http://localhost:8080/api/v1/activity-feed/users/user456/transactions?limit=1
+
+###
+
+### Step 2: Last Page with Filter (paste nextCursor from previous)
+# Expected: 1 more transaction + nextCursor=null + hasMore=false (this is the last transaction!)
+# Instructions: Replace {PASTE_CURSOR_FROM_USER456_STEP_1} with the actual nextCursor value from previous response
+GET http://localhost:8080/api/v1/activity-feed/users/user456/transactions?cursor=eyJ1c2VyX2lkIjoidXNlcjQ1NiIsInNrIjoiMjAyNi0wMS0yMFQwOTowMjo0OVojdHgtY3J5cHRvLXBlbmRpbmctNmU5ZTM4NDgtMzllZC00ZmQ3LWI5OGItYjE0NmE3NDZkNzk0In0=&limit=1
+
+###
+
+###############################################################################
+# BASIC QUERIES - By User ID (Uses DynamoDB - Simple Query)
+###############################################################################
+
+### Get all transactions for user123
+# Expected: 4 transactions (CARD, CRYPTO, BANK, P2P), hasMore=false, nextCursor=null
+GET http://localhost:8080/api/v1/activity-feed/users/user123/transactions?limit=20
+
+###
+
+### Get all transactions for user456
+# Expected: 2 transactions (CARD EUR, CRYPTO PENDING), hasMore=false, nextCursor=null
+GET http://localhost:8080/api/v1/activity-feed/users/user456/transactions?limit=20
+
+###
+
+### Get all transactions for user789
+# Expected: 1 transaction (CARD FAILED), hasMore=false, nextCursor=null
+GET http://localhost:8080/api/v1/activity-feed/users/user789/transactions?limit=20
+
+###
+
+###############################################################################
+# GET TRANSACTION BY ID (Uses DynamoDB)
+###############################################################################
+
+### Get specific transaction by ID - Example for user123 CARD transaction
+# Instructions:
+# 1. First, run one of the "Get all transactions" queries above to get actual transaction IDs
+# 2. Copy a transaction ID from the response (e.g., "tx-card-abc123...")
+# 3. Replace {TRANSACTION_ID} below with the actual ID
+# Expected: Single transaction details
+GET http://localhost:8080/api/v1/activity-feed/transactions/tx-p2p-27ebd522-4491-485b-be4a-da786d499d84
+
+###
+
+### Get non-existent transaction by ID
+# Expected: 404 Not Found with error message "Transaction not found with id: invalid-id"
+GET http://localhost:8080/api/v1/activity-feed/transactions/invalid-id
+
+###
+
+###############################################################################
+# PRODUCT FILTERS (Uses OpenSearch - Complex Query)
+###############################################################################
+
+### Filter by CARD transactions - user123
+# Expected: 1 transaction (Starbucks payment)
+GET http://localhost:8080/api/v1/activity-feed/users/user123/transactions?product=CARD&limit=10
+
+###
+
+###############################################################################
+# STATUS FILTERS (Uses OpenSearch)
+###############################################################################
+
+### Filter by COMPLETED status - user123
+# Expected: 4 transactions (all user123 transactions are COMPLETED)
+GET http://localhost:8080/api/v1/activity-feed/users/user123/transactions?status=COMPLETED&limit=10
+
+###
+
+### Filter by PENDING status - user456
+# Expected: 1 transaction (ETH crypto withdrawal)
+GET http://localhost:8080/api/v1/activity-feed/users/user456/transactions?status=PENDING&limit=10
+
+###
+
+###############################################################################
+# CURRENCY FILTERS (Uses OpenSearch)
+###############################################################################
+
+### Filter by USD currency - user123
+# Expected: 4 transactions (all user123 transactions are USD)
+GET http://localhost:8080/api/v1/activity-feed/users/user123/transactions?currency=USD&limit=10
+
+###
+
+### Filter by EUR currency - user456
+# Expected: 1 transaction (Carrefour payment)
+GET http://localhost:8080/api/v1/activity-feed/users/user456/transactions?currency=EUR&limit=10
+
+###
+
+###############################################################################
+# TRANSACTION TYPE FILTERS (Uses OpenSearch)
+###############################################################################
+
+### Filter by PAYMENT type - user123
+# Expected: 1 transaction (CARD payment at Starbucks)
+GET http://localhost:8080/api/v1/activity-feed/users/user123/transactions?type=PAYMENT&limit=10
+
+###
+
+### Filter by TRANSFER type - user123
+# Expected: 2 transactions (BANK transfer + P2P transfer)
+GET http://localhost:8080/api/v1/activity-feed/users/user123/transactions?type=TRANSFER&limit=10
+
+###
+
+###############################################################################
+# DATE RANGE FILTERS (Uses DynamoDB or OpenSearch)
+###############################################################################
+
+### Filter by date range - user123 (today only, uses DynamoDB)
+# Expected: 4 transactions (all created today)
+# Note: Update dates to match when you run the test
+GET http://localhost:8080/api/v1/activity-feed/users/user123/transactions?startDate=2026-01-19T00:00:00Z&endDate=2026-01-19T23:59:59Z&limit=10
+
+###
+
+### Filter by date range + product - user123 (uses OpenSearch)
+# Expected: 1 transaction (CARD payment at Starbucks)
+GET http://localhost:8080/api/v1/activity-feed/users/user123/transactions?startDate=2026-01-19T00:00:00Z&endDate=2026-01-19T23:59:59Z&product=CARD&limit=10
+
+###
+
+###############################################################################
+# TEXT SEARCH (Uses OpenSearch - Full-Text Search)
+###############################################################################
+
+### Search for "Starbucks" in description
+# Expected: 1 transaction (user123 CARD payment)
+GET http://localhost:8080/api/v1/activity-feed/users/user123/transactions?searchText=Starbucks&limit=10
+
+###
+
+### Search for "transfer" in description
+# Expected: 2 transactions (BANK transfer + P2P transfer)
+GET http://localhost:8080/api/v1/activity-feed/users/user123/transactions?searchText=transfer&limit=10
+
+###
+
+### Search for "BTC" in description
+# Expected: 1 transaction (user123 CRYPTO deposit - "Crypto BTC purchase")
+GET http://localhost:8080/api/v1/activity-feed/users/user123/transactions?searchText=BTC&limit=10
+
+###
+
+###############################################################################
+# METADATA FIELD SEARCH (Uses OpenSearch)
+###############################################################################
+
+### Search for specific merchant name in metadata
+# Expected: 1 transaction (Starbucks CARD payment)
+GET http://localhost:8080/api/v1/activity-feed/users/user123/transactions?metadataField=merchantName&metadataValue=Starbucks&limit=10
+
+###
+
+### Search for specific crypto symbol in metadata (BTC)
+# Expected: 1 transaction (BTC deposit)
+GET http://localhost:8080/api/v1/activity-feed/users/user123/transactions?metadataField=cryptoSymbol&metadataValue=BTC&limit=10
+
+###
+
+### Search for specific card brand in metadata (Visa)
+# Expected: 1 transaction (Starbucks - Visa card)
+GET http://localhost:8080/api/v1/activity-feed/users/user123/transactions?metadataField=cardBrand&metadataValue=Visa&limit=10
+
+###
+
+### Search for recipient name in P2P metadata
+# Expected: 1 transaction (P2P transfer to Jane Smith)
+GET http://localhost:8080/api/v1/activity-feed/users/user123/transactions?metadataField=recipientName&metadataValue=Jane Smith&limit=10
+
+###
+
+###############################################################################
+# SORTING (Uses OpenSearch when sortBy != occurredAt)
+###############################################################################
+
+### Sort by amount ascending - user123
+# Expected: 4 transactions ordered by amount: CRYPTO ($0.5), P2P ($75), CARD ($89.99), BANK ($1500)
+GET http://localhost:8080/api/v1/activity-feed/users/user123/transactions?sortBy=amount&sortDirection=ASC&limit=10
+
+###
+
+### Sort by amount descending - user123
+# Expected: 4 transactions ordered by amount: BANK ($1500), CARD ($89.99), P2P ($75), CRYPTO ($0.5)
+GET http://localhost:8080/api/v1/activity-feed/users/user123/transactions?sortBy=amount&sortDirection=DESC&limit=10
+
+###
+
+### Sort by occurredAt descending (default, uses DynamoDB)
+# Expected: 4 transactions in reverse chronological order (newest first)
+# Note: This is the only sort that uses DynamoDB (occurredAt DESC)
+GET http://localhost:8080/api/v1/activity-feed/users/user123/transactions?sortBy=occurredAt&sortDirection=DESC&limit=10
+
+###
+
+###############################################################################
+# COMBINED FILTERS (Uses OpenSearch)
+###############################################################################
+
+### Filter: CARD + COMPLETED - user123
+# Expected: 1 transaction (Starbucks)
+GET http://localhost:8080/api/v1/activity-feed/users/user123/transactions?product=CARD&status=COMPLETED&limit=10
+
+###
+
+### Filter: CRYPTO + PENDING - user456
+# Expected: 1 transaction (ETH withdrawal)
+GET http://localhost:8080/api/v1/activity-feed/users/user456/transactions?product=CRYPTO&status=PENDING&limit=10
+
+###
+
+### Filter: TRANSFER type + COMPLETED status - user123
+# Expected: 2 transactions (BANK transfer + P2P transfer)
+GET http://localhost:8080/api/v1/activity-feed/users/user123/transactions?type=TRANSFER&status=COMPLETED&limit=10
+
+###
+
+### Complex filter: Search text + Product filter - user123
+# Expected: 1 transaction (BANK transfer)
+GET http://localhost:8080/api/v1/activity-feed/users/user123/transactions?searchText=transfer&product=BANK&limit=10
+
+###
+
+### Complex filter: Metadata + Product - user123
+# Expected: 1 transaction (Starbucks CARD payment)
+GET http://localhost:8080/api/v1/activity-feed/users/user123/transactions?product=CARD&metadataField=merchantName&metadataValue=Starbucks&limit=10
+
+###
+
+###############################################################################
+# EDGE CASES & VALIDATION
+###############################################################################
+
+### Query with no results - PENDING status for user123
+# Expected: 0 transactions, hasMore=false, nextCursor=null
+GET http://localhost:8080/api/v1/activity-feed/users/user123/transactions?status=PENDING&limit=10
+
+###
+
+### Query with large page size
+# Expected: 4 transactions (all user123 transactions)
+GET http://localhost:8080/api/v1/activity-feed/users/user123/transactions?limit=100
+
+###
+
+###############################################################################
+# TESTING NOTES
+###############################################################################
+
+# Before running these examples:
+# 1. Start the infrastructure: ./scripts/setup-local-infrastructure.sh
+# 2. Start the application: ./gradlew bootRun
+# 3. Publish test events: ./scripts/publish-all-test-events.sh
+# 4. Wait ~5 seconds for SQS consumer to process all events
+#
+# Expected test data (7 transactions):
+# ┌──────────┬─────────┬───────────┬───────────┬──────────┬─────────────────────┐
+# │ User     │ Product │ Type      │ Status    │ Currency │ Description         │
+# ├──────────┼─────────┼───────────┼───────────┼──────────┼─────────────────────┤
+# │ user123  │ CARD    │ PAYMENT   │ COMPLETED │ USD      │ Starbucks           │
+# │ user123  │ CRYPTO  │ DEPOSIT   │ COMPLETED │ USD      │ BTC deposit         │
+# │ user123  │ BANK    │ TRANSFER  │ COMPLETED │ USD      │ Bank transfer       │
+# │ user123  │ P2P     │ TRANSFER  │ COMPLETED │ USD      │ To Jane Smith       │
+# │ user456  │ CARD    │ PAYMENT   │ COMPLETED │ EUR      │ Carrefour           │
+# │ user456  │ CRYPTO  │ WITHDRAWAL│ PENDING   │ USD      │ ETH withdrawal      │
+# │ user789  │ CARD    │ PAYMENT   │ FAILED    │ USD      │ Amazon (failed)     │
+# └──────────┴─────────┴───────────┴───────────┴──────────┴─────────────────────┘
+#
+# Cursor-based pagination:
+# - First page: omit cursor parameter, use limit
+# - Next page: use nextCursor from previous response
+# - Response format: { content: [...], nextCursor: "...", size: N, hasMore: true/false }
+# - When nextCursor is null or hasMore is false, there are no more results
+#
+# Getting transactions by ID:
+# - Transaction IDs are generated dynamically (format: tx-{product}-{uuid})
+# - To test the "Get by ID" endpoint, first fetch transactions for a user to get actual IDs
+# - Copy an ID from the response and use it in the GET /transactions/{id} endpoint
+#
+# Query routing:
+# - Simple queries (userId only or userId + date, sortBy=occurredAt DESC): Uses DynamoDB (fast)
+# - Complex queries (any filter, custom sorting, or ASC direction): Uses OpenSearch (powerful search)
+# - DynamoDB can only sort by occurredAt in DESC order (newest first)
+# - Get by ID: Uses DynamoDB table scan (consider adding GSI for production)
+#
+# All timestamps are in UTC and ISO 8601 format
