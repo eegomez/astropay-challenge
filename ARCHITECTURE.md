@@ -1,5 +1,7 @@
 # Activity Feed Service - Architecture Documentation
 
+**Author**: Erik Gomez
+
 > **Senior Backend Engineer Challenge - AstroPay**
 >
 > A scalable, real-time system to consolidate all financial transactions into a unified Activity Feed with instant search, filtering, and efficient pagination.
@@ -493,6 +495,7 @@ Returns a single [Transaction](#transaction-object) object.
 
 #### 1. **Event Streaming with Per-Product Topics**
 **Current**: All transaction events published to a single queue
+
 **Proposed**: Each product service publishes to its own topic/stream (e.g., card.events, crypto.events, p2p.events), and the Activity Feed consumes from all of them.
 
 **Benefits:**
@@ -501,6 +504,7 @@ Returns a single [Transaction](#transaction-object) object.
 
 #### 2. **Split into Ingestor + Reader Services (CQRS-style)**
 **Current**: Single service ingests events and serves REST queries
+
 **Proposed**: Split into:
 - Ingestor: consumes events, normalizes, writes to DynamoDB + OpenSearch
 - Reader API: serves REST endpoints, reads from DynamoDB/OpenSearch
@@ -512,14 +516,17 @@ Returns a single [Transaction](#transaction-object) object.
 
 #### 3. **Circuit Breakers (Resilience4j)**
 **Current**: No circuit breakers (cascading failures possible)
+
 **Proposed**: Wrap external calls with circuit breakers
 
 #### 4. **Rate Limiting**
 **Current**: No rate limiting
+
 **Proposed**: Limit external calls by amount and by user
 
 #### 5. **Real-Time Notifications (WebSockets)**
 **Current**: Polling for new transactions
+
 **Proposed**: WebSocket connection for push notifications
 
 **Benefits:**
@@ -529,6 +536,7 @@ Returns a single [Transaction](#transaction-object) object.
 
 #### 6. **Event Sourcing**
 **Current**: State-based storage (current transaction state)
+
 **Proposed**: Event store (full transaction history)
 
 **Benefits:**
@@ -541,17 +549,17 @@ Returns a single [Transaction](#transaction-object) object.
 ## Next Steps
 
 1. **Code Review**: Walk through implementation with team
-2. **Load Testing**: Simulate 10,000 TPS, measure latencies
-3. **Security Audit**: Penetration testing, IAM policy review
-4. **Migration Plan**: LocalStack → AWS staging environment
-5. **Monitoring Setup**: CloudWatch dashboards, alerts, X-Ray tracing
-6. **Documentation**: API guides, runbooks, architecture diagrams
+2. **Logging**: Add logs for debugging
+3. **Metrics**: Add metrics when necessary
+4. **Alerts**: Add alerts
+5. **Load Testing**: Simulate 10,000 TPS, measure latencies
+6. **Security Audit**: Penetration testing, IAM policy review
 
 ---
 
 ## MVP
 
-**Github repository:** https://github.com/eegomez/astropay-challenge
+**Github repository:** [https://github.com/eegomez/astropay-challenge](https://github.com/eegomez/astropay-challenge)
 
 ---
 
